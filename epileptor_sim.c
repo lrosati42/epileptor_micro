@@ -52,8 +52,8 @@ typedef struct {
 double slow_synapse_eq(slow_synapse *syn, double Vpre, double Vpost, double dt, double t)
 {
     double I    = 0.0;
-    double Cmax = 1.0; 
-    double Kp   = 5.0;
+    double Cmax = 1.0;  /* Maximum concentration of transmitter in the synaptic cleft (mM) */
+    double Kp   = 5.0;  /* Steepness of the transmitter release function exponential (mV) */
 
     /* Transmitter function */
     double C = Cmax / (1.0 + exp(-(Vpre - syn->Vt)/Kp));
@@ -92,6 +92,7 @@ double fast_synapse_eq(fast_synapse *syn, double Vpre, double Vpost, double dt, 
     double Cmax = 1.0;
     double Kp   = 5.0;
 
+    /* Transmitter function */
     double C = Cmax / (1.0 + exp(-(Vpre - syn->Vt)/Kp));
 
     /* Update m */
@@ -387,7 +388,7 @@ int main(void)
 {
     srand((unsigned int)time(NULL)); // seed
 
-    // Misura il tempo di inizio
+    // Get initial time
     clock_t start_time = clock();
 
     double dt   = 0.05;
@@ -409,7 +410,7 @@ int main(void)
         population2[i].x2  = uniform_rand(-1.25, 1.0);
         population2[i].y2  = uniform_rand(0.0, 1.0);
         population2[i].c2  = 0.3;
-        population2[i].noise = 0.1;
+        population2[i].noise = 0.3;
 
         population2[i].CpES = 0.8;
         population2[i].CpCS = 1.0;
@@ -429,14 +430,14 @@ int main(void)
         population2[i].Cm  = 20.0;
 
         /* Synapses */
-        population2[i].syn_x2x2.gmax = 0.5;
+        population2[i].syn_x2x2.gmax = 0.2;
         population2[i].syn_x2x2.Esyn = -80.0;
         population2[i].syn_x2x2.a    = 5.0;
         population2[i].syn_x2x2.b    = 0.18;
         population2[i].syn_x2x2.Vt   = 2.0;
         population2[i].syn_x2x2.m    = 0.0;
 
-        population2[i].syn_x1x2.gmax = 0.8;
+        population2[i].syn_x1x2.gmax = 0.2;
         population2[i].syn_x1x2.Esyn = 0.0; 
         population2[i].syn_x1x2.a    = 1.1;
         population2[i].syn_x1x2.b    = 0.19;
@@ -475,7 +476,7 @@ int main(void)
         population1[i].s  = 8.0;
         population1[i].x0 = -2.0;
         population1[i].z0 = 0.0;
-        population1[i].r  = 0.0001;
+        population1[i].r  = 0.0001; /* [0.000004,0.00002] in the paper */
         population1[i].I1 = 3.1;
 
         population1[i].x1 = uniform_rand(-1.0, 1.5);
@@ -485,19 +486,19 @@ int main(void)
         population1[i].CpES = 0.8;  
         population1[i].CpCS = 1.0;  
 
-        population1[i].noise  = 2.0;
-        population1[i].noise3 = 0.1;
+        population1[i].noise  = 0.5;
+        population1[i].noise3 = 0.;
 
         /* Fast syn x1->x1 */
-        population1[i].syn_x1x1.gmax = 0.0;  /* set to 0 if you don't want x1->x1 */
-        population1[i].syn_x1x1.Esyn = 0.0;
-        population1[i].syn_x1x1.a    = 1.1;
-        population1[i].syn_x1x1.b    = 0.19;
-        population1[i].syn_x1x1.Vt   = 2.0;
+        population1[i].syn_x1x1.gmax = 0.2; /* set to 0 if you don't want x1->x1 */
+        population1[i].syn_x1x1.Esyn = 0.0; /* intra-population synaptic coupling (μS) */
+        population1[i].syn_x1x1.a    = 1.1; /* Forward binding rate constants of the excitatory synapses to open the receptors (mM-1 msec-1) */
+        population1[i].syn_x1x1.b    = 0.19;/* Backward binding rate constants of the excitatory synapses to close the receptors (msec-1 ) */
+        population1[i].syn_x1x1.Vt   = 2.0; /* Value at which the transmitter release function is half-activated (mV)  */
         population1[i].syn_x1x1.m    = 0.0;
 
         /* Fast syn x2->x1 */
-        population1[i].syn_x2x1.gmax = 0.5;
+        population1[i].syn_x2x1.gmax = 0.2;
         population1[i].syn_x2x1.Esyn = uniform_rand(-80.0, -50.0);
         population1[i].syn_x2x1.a    = 5.0;
         population1[i].syn_x2x1.b    = 0.18;
@@ -505,13 +506,13 @@ int main(void)
         population1[i].syn_x2x1.m    = 0.0;
 
         /* Slow syn x2->x1 */
-        population1[i].syn_x2x1_slow.gmax = 1.0;
+        population1[i].syn_x2x1_slow.gmax = 0.0;
         population1[i].syn_x2x1_slow.Esyn = -95.0;
         population1[i].syn_x2x1_slow.a    = 0.09;
         population1[i].syn_x2x1_slow.b    = 0.0012;
         population1[i].syn_x2x1_slow.Vt   = 2.0;
         population1[i].syn_x2x1_slow.r    = 0.0;
-        population1[i].syn_x2x1_slow.s    = 0.0;
+        population1[i].syn_x2x1_slow.s    = 8.0;
         population1[i].syn_x2x1_slow.Kd   = 100.0;
         population1[i].syn_x2x1_slow.K3   = 0.18;
         population1[i].syn_x2x1_slow.K4   = 0.034;
@@ -604,12 +605,12 @@ int main(void)
         fprintf(fp, "%g\t%g\t%g\n", t, mean_x1, mean_x2);
     }
 
-    // Misura il tempo di fine
+    // Get total time
     clock_t end_time = clock();
 
-    // Calcola il tempo di esecuzione in secondi
+    // Compute execution time in seconds
     double execution_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
-    printf("Tempo di esecuzione: %f secondi\n", execution_time);
+    printf("Execution time: %f seconds\n", execution_time);
 
     fclose(fp);
     printf("Simulation finished. Results in epileptor_output.txt\n");
