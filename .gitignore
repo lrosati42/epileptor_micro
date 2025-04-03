@@ -1,3 +1,6 @@
+# Ignore the compiled executable
+epileptor_sim
+
 # Prerequisites
 *.d
 
