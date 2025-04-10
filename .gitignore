@@ -4,6 +4,9 @@ epileptor_sim
 # Prerequisites
 *.d
 
+# Vim temporary file
+*.swp
+
 # Object files
 *.o
 *.ko
