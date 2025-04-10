@@ -1,6 +1,6 @@
 # Compiler and flags
 CC = gcc
-CFLAGS = -ansi -pedantic -Wall -Wextra -O2
+CFLAGS = -pedantic -Wall -Wextra -O2
 
 # Target executable name
 TARGET = epileptor_sim

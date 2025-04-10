@@ -13,16 +13,44 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <math.h>
 #include <time.h>
 
 /* ------------------------------------------------------------------
    Helper: Uniform random in [min_val, max_val].
    NOTE: For higher-quality PRNG, replace rand() with a better generator.
-   ------------------------------------------------------------------ */
+   -i----------------------------------------------------------------- */
 double uniform_rand(double min_val, double max_val)
 {
     return min_val + (max_val - min_val) * ((double)rand() / (double)RAND_MAX);
+}
+
+double linear_sigmoid(double x) {
+    if (x < -2.0)
+        return 0.0;
+    else if (x > 2.0)
+        return 1.0;
+    else
+        return 0.5 + 0.25 * x;  // linear interpolation: S(-2)=0, S(2)=1.
+}
+
+double linear_tanh(double x) {
+    if (x <= -2.0)
+        return -1.0;
+    else if (x >= 2.0)
+        return 1.0;
+    else
+        return 0.5 * x;  // approximates tanh(x) linearly on [-2, 2]
+}
+
+double linear_cosh(double x) {
+    double ax = (x < 0 ? -x : x);
+    if (ax >= 2.0)
+        return 3.7622;  // approximate cosh(2) ≈ 3.7622
+    else {
+        // Linear interpolation between (0,1) and (2,3.7622)
+        double slope = (3.7622 - 1.0) / 2.0;  // ≈ 1.3811
+        return 1.0 + slope * ax;
+    }
 }
 
 /* ======================= SLOW SYNAPSE ======================= */
@@ -42,7 +70,8 @@ typedef struct {
     double Kd;
     double K3; 
     double K4; 
-    double n;   /* exponent for s^n in I calculation */
+    //   double n;   	/* used to be exponent for s^n in I calculation */  
+    //   		/* now n is hardwire to 4 see "comment.1"	*/
     double r;   /* gating var */
     double s;   /* gating var */
     double Vt;  /* presyn threshold param */
@@ -55,15 +84,17 @@ double slow_synapse_eq(slow_synapse *syn, double Vpre, double Vpost, double dt, 
     double Cmax = 1.0; 
     double Kp   = 5.0;
 
-    /* Transmitter function */
-    double C = Cmax / (1.0 + exp(-(Vpre - syn->Vt)/Kp));
+    /* Piece-wise linear transmitter function */
+    double sig_arg = (Vpre - syn->Vt) / Kp;
+    double C = Cmax * linear_sigmoid(sig_arg);  
 
     /* Update r, s */
     syn->r += (syn->a*C*(1.0 - syn->r) - syn->b*syn->r) * dt;
     syn->s += (syn->K3*syn->r - syn->K4*syn->s) * dt;
 
-    /* Current:  I = -gmax * (s^n) * (Vpost - Esyn)/(Kd + s^n) */
-    double s_pow_n = pow(syn->s, syn->n);
+    /* previosly Current:  I = -gmax * (s^n) * (Vpost - Esyn)/(Kd + s^n) */
+    // comment.1  now n is hardwired to 4    was:  double s_pow_n = pow(syn->s, syn->n);
+    double s_pow_n = syn->s * syn->s * syn->s * syn->s;
     I = -syn->gmax * s_pow_n * (Vpost - syn->Esyn) / (syn->Kd + s_pow_n);
 
     return I;
@@ -92,7 +123,8 @@ double fast_synapse_eq(fast_synapse *syn, double Vpre, double Vpost, double dt, 
     double Cmax = 1.0;
     double Kp   = 5.0;
 
-    double C = Cmax / (1.0 + exp(-(Vpre - syn->Vt)/Kp));
+    double sig_arg = (Vpre - syn->Vt) / Kp;
+    double C = Cmax * linear_sigmoid(sig_arg);
 
     /* Update m */
     syn->m += (syn->a*C*(1.0 - syn->m) - syn->b*syn->m)*dt;
@@ -242,9 +274,10 @@ void pop2n_euler(pop2n *neuron,
                   + Isyn_x2x2_slow;  /* slow syn */
 
     /* Morris-Lecar sub-expressions */
-    double m_inf = 0.5 * (1.0 + tanh((V - neuron->V1)/ neuron->V2));
-    double n_inf = 0.5 * (1.0 + tanh((V - neuron->V3)/ neuron->V4));
-    double tau_n = 1.0 / cosh((V - neuron->V3)/(2.0 * neuron->V4));
+	// Piecewise linear approximation
+	double m_inf = 0.5 * (1.0 + linear_tanh((V - neuron->V1) / neuron->V2));
+	double n_inf = 0.5 * (1.0 + linear_tanh((V - neuron->V3) / neuron->V4));
+    	double tau_n = 1.0 / linear_cosh((V - neuron->V3) / (2.0 * neuron->V4));
 
     double dn  = neuron->phi * (n_inf - n) / tau_n;
     double dVm = (I_in 
@@ -320,20 +353,22 @@ void pop1n_euler(pop1n *neuron,
     double noise3_term  = uniform_rand(-neuron->noise3, neuron->noise3);
 
     /* Euler update for x1, y1, z  */
+    double x1_cube = neuron->x1 * neuron->x1 * neuron->x1;
+    double x1_square = neuron->x1 * neuron->x1;
     double x1_next = neuron->x1 
        + ( neuron->y1 
-           - a*pow(neuron->x1, 3.0) 
-           + b*pow(neuron->x1, 2.0)
+           - a * x1_cube
+           + b * x1_square
            - neuron->z
            + I1
-           + neuron->CpCS*(Isyn_x1x1/50.0)
-           + Igj_x1x1
-           + (Isyn_x2x1/50.0)
-           + (Isyn_x2x1_slow/50.0)
-           + noise_term
-         )*dt;
-
-    double y1_next = neuron->y1 + ( c - d*pow(neuron->x1,2.0) - neuron->y1 )*dt;
+       + neuron->CpCS*(Isyn_x1x1/50.0)
+       + Igj_x1x1
+       + (Isyn_x2x1/50.0)
+       + (Isyn_x2x1_slow/50.0)
+       + noise_term
+     )*dt;
+	
+    double y1_next = neuron->y1 + ( c - d * x1_square - neuron->y1 ) * dt;
 
     double z_next = neuron->z 
        + ( r_*( s_*( neuron->x1 + x2bar - x0 ) - zbar ) + noise3_term )*dt;
@@ -453,7 +488,7 @@ int main(void)
         population2[i].syn_x2x2_slow.Kd   = 100.0;
         population2[i].syn_x2x2_slow.K3   = 0.18;
         population2[i].syn_x2x2_slow.K4   = 0.034;
-        population2[i].syn_x2x2_slow.n    = 4.0;
+	//        population2[i].syn_x2x2_slow.n    = 4.0;   //  comment.1 n hardwired to 4
 
         /* Connection arrays */
         population2[i].pop1in = NULL;
@@ -515,7 +550,7 @@ int main(void)
         population1[i].syn_x2x1_slow.Kd   = 100.0;
         population1[i].syn_x2x1_slow.K3   = 0.18;
         population1[i].syn_x2x1_slow.K4   = 0.034;
-        population1[i].syn_x2x1_slow.n    = 4.0;
+	//        population2[i].syn_x2x1_slow.n    = 4.0;   //  comment.1 n hardwired to 4
 
         /* Connection arrays */
         population1[i].pop1in = NULL;
