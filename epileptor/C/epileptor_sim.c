@@ -5,8 +5,8 @@
   neuronal model into ANSI C.
 
   Compile:
-     gcc -std=c99 -o epileptor_sim epileptor_sim.c -lm
-     gcc -shared -o epileptor_sim.so -fPIC epileptor_sim.c
+     gcc -std=c99 -o epileptor_sim epileptor_sim.c cJSON.c -lm  # to produce an executable
+     gcc -shared -o epileptor/C/epileptor_sim.so -fPIC epileptor/C/epileptor_sim.c epileptor/C/cJSON.c  # to produce a shared library
   Run:
      ./epileptor_sim
 
@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <time.h>
+#include "cJSON.h"
 
 static int seed_initialized = 0;  // Global variable to check if the seed has been set
 
@@ -26,6 +27,14 @@ static int seed_initialized = 0;  // Global variable to check if the seed has be
 double uniform_rand(double min_val, double max_val)
 {
     return min_val + (max_val - min_val) * ((double)rand() / (double)RAND_MAX);
+}
+
+double get_json_double(cJSON *json, const char *key, double default_val) {
+    cJSON *item = cJSON_GetObjectItemCaseSensitive(json, key);
+    if (cJSON_IsNumber(item)) {
+        return item->valuedouble;
+    }
+    return default_val;
 }
 
 /* ======================= SLOW SYNAPSE ======================= */
@@ -387,13 +396,54 @@ void connect_pop2n_syn_pop1n(pop2n *target, pop1n **group, int count)
 }
 
 /* ==================== MAIN EXAMPLE ==================== */
-void epileptor_sim(double x0, double CpES, double *output, double duration, double dt, int seed)
+void epileptor_sim(double x0, double CpES, double *output, double duration, double dt, int seed, double *x1, double *y1, double *z, double *x2, double *y2)
 {
     // simulate for duration ms with the same values of x0 and CpES
     if (!seed_initialized) {  // Initialize the seed only on the first call
         srand(seed); // seed
         // srand((unsigned int)time(NULL)); // seed
         seed_initialized = 1;
+    }
+
+    FILE *file = fopen("simulation_params.json", "r");    // TODO: adjust path as needed
+    if (!file) {
+        perror("Errore apertura file");
+    }
+
+    fseek(file, 0, SEEK_END);
+    long fsize = ftell(file);
+    rewind(file);
+
+    char *data = malloc(fsize + 1);
+    fread(data, 1, fsize, file);
+    data[fsize] = '\0';
+    fclose(file);
+
+    cJSON *root = cJSON_Parse(data);
+    if (!root) {
+        printf("Errore nel parsing JSON\n");
+        free(data);
+    }
+
+    cJSON *sim_json = cJSON_GetObjectItemCaseSensitive(root, "simulation");
+    if (!cJSON_IsObject(sim_json)) {
+        printf("Campo 'simulation' non trovato o non valido.\n");
+        cJSON_Delete(root);
+        free(data);
+    }
+
+    cJSON *pop1_json = cJSON_GetObjectItemCaseSensitive(root, "pop1");
+    if (!cJSON_IsObject(pop1_json)) {
+        printf("Campo 'pop1' non trovato o non valido.\n");
+        cJSON_Delete(root);
+        free(data);
+    }
+    
+    cJSON *pop2_json = cJSON_GetObjectItemCaseSensitive(root, "pop2");
+    if (!cJSON_IsObject(pop2_json)) {
+        printf("Campo 'pop2' non trovato o non valido.\n");
+        cJSON_Delete(root);
+        free(data);
     }
 
     // Get initial time
@@ -404,65 +454,65 @@ void epileptor_sim(double x0, double CpES, double *output, double duration, doub
     int steps   = (int)(duration/dt);
 
     /* We'll have N1 pop1n neurons and N2 pop2n neurons */
-    int N1 = 40;
-    int N2 = 40;
+    int N1 = (int)get_json_double(sim_json, "nbn1", 40);
+    int N2 = (int)get_json_double(sim_json, "nbn2", 40);
 
     /* Allocate pop2n first (to avoid incomplete type issues) */
     pop2n *population2 = (pop2n *)malloc(N2 * sizeof(pop2n));
     for(int i=0; i<N2; i++) {
-        population2[i].aa  = 8.0;
-        population2[i].tau = 20.0;
-        population2[i].I2  = 0.8;
-        population2[i].z0  = 0.0;
+        population2[i].aa  = get_json_double(pop2_json, "aa", 8.0);
+        population2[i].tau = get_json_double(pop2_json, "tau", 20.0);
+        population2[i].I2  = get_json_double(pop2_json, "I2", 0.8);
+        population2[i].z0  = get_json_double(pop2_json, "z0", 0.0);
 
-        population2[i].x2  = uniform_rand(-1.25, 1.0);
-        population2[i].y2  = uniform_rand(0.0, 1.0);
-        population2[i].c2  = 0.3;
-        population2[i].noise = 0.3;
+        population2[i].x2  = x2[i];
+        population2[i].y2  = y2[i];
+        population2[i].c2  = get_json_double(pop2_json, "c2", 0.3);
+        population2[i].noise = get_json_double(pop2_json, "noise", 0.3);
 
         population2[i].CpES = CpES;
-        population2[i].CpCS = 1.0;
+        population2[i].CpCS = get_json_double(pop2_json, "CpCS", 1.0);
 
         /* Morris-Lecar */
-        population2[i].V1 = -1.2;
-        population2[i].V2 = 18.0;
-        population2[i].V3 = 12.0;
-        population2[i].V4 = 17.4;
-        population2[i].phi= 0.067;
-        population2[i].gCa_bar = 4.0;
-        population2[i].gK_bar  = 8.0;
-        population2[i].gL_bar  = 2.0;
-        population2[i].ECa = 120.0;
-        population2[i].EK  = -84.0;
-        population2[i].EL  = -60.0;
-        population2[i].Cm  = 20.0;
+        population2[i].V1 = get_json_double(pop2_json, "V1", -1.2);
+        population2[i].V2 = get_json_double(pop2_json, "V2", 18.0);
+        population2[i].V3 = get_json_double(pop2_json, "V3", 12.0);
+        population2[i].V4 = get_json_double(pop2_json, "V4", 17.4);
+        population2[i].phi= get_json_double(pop2_json, "phi", 0.067);
+        population2[i].gCa_bar = get_json_double(pop2_json, "gCa_bar", 4.0);
+        population2[i].gK_bar  = get_json_double(pop2_json, "gK_bar", 8.0);
+        population2[i].gL_bar  = get_json_double(pop2_json, "gL_bar", 2.0);
+        population2[i].ECa = get_json_double(pop2_json, "ECa", 120.0);
+        population2[i].EK  = get_json_double(pop2_json, "EK", -84.0);
+        population2[i].EL  = get_json_double(pop2_json, "EL", -60.0);
+        population2[i].Cm  = get_json_double(pop2_json, "Cm", 20.0);
 
         /* Synapses */
-        population2[i].syn_x2x2.gmax = 0.2;
-        population2[i].syn_x2x2.Esyn = -80.0;
-        population2[i].syn_x2x2.a    = 5.0;
-        population2[i].syn_x2x2.b    = 0.18;
-        population2[i].syn_x2x2.Vt   = 2.0;
-        population2[i].syn_x2x2.m    = 0.0;
+        population2[i].syn_x2x2.gmax = get_json_double(pop2_json, "syn_x2x2.gmax", 0.2);
+        population2[i].syn_x2x2.Esyn = get_json_double(pop2_json, "syn_x2x2.Esyn", -80.0);
+        population2[i].syn_x2x2.a    = get_json_double(pop2_json, "syn_x2x2.a", 5.0);
+        population2[i].syn_x2x2.b    = get_json_double(pop2_json, "syn_x2x2.b", 0.18);
+        population2[i].syn_x2x2.Vt   = get_json_double(pop2_json, "syn_x2x2.Vt", 2.0);
+        population2[i].syn_x2x2.m    = get_json_double(pop2_json, "syn_x2x2.m", 0.0);
 
-        population2[i].syn_x1x2.gmax = 0.2;
-        population2[i].syn_x1x2.Esyn = 0.0;
-        population2[i].syn_x1x2.a    = 1.1;
-        population2[i].syn_x1x2.b    = 0.19;
-        population2[i].syn_x1x2.Vt   = 2.0;
-        population2[i].syn_x1x2.m    = 0.0;
+        population2[i].syn_x1x2.gmax = get_json_double(pop2_json, "syn_x1x2.gmax", 0.2);
+        population2[i].syn_x1x2.Esyn = get_json_double(pop2_json, "syn_x1x2.Esyn", 0.0);
+        population2[i].syn_x1x2.a    = get_json_double(pop2_json, "syn_x1x2.a", 1.1);
+        population2[i].syn_x1x2.b    = get_json_double(pop2_json, "syn_x1x2.b", 0.19);
+        population2[i].syn_x1x2.Vt   = get_json_double(pop2_json, "syn_x1x2.Vt", 2.0);
+        population2[i].syn_x1x2.m    = get_json_double(pop2_json, "syn_x1x2.m", 0.0);
 
-        population2[i].syn_x2x2_slow.gmax = 0.0;   /* example: no slow x2->x2 if you wish */
-        population2[i].syn_x2x2_slow.Esyn = -95.0;
-        population2[i].syn_x2x2_slow.a    = 0.09;
-        population2[i].syn_x2x2_slow.b    = 0.0012;
-        population2[i].syn_x2x2_slow.Vt   = 2.0;
-        population2[i].syn_x2x2_slow.r    = 0.0;
-        population2[i].syn_x2x2_slow.s    = 0.0;
-        population2[i].syn_x2x2_slow.Kd   = 100.0;
-        population2[i].syn_x2x2_slow.K3   = 0.18;
-        population2[i].syn_x2x2_slow.K4   = 0.034;
-        population2[i].syn_x2x2_slow.n    = 4.0;
+        population2[i].syn_x2x2_slow.gmax = get_json_double(pop2_json, "syn_x2x2_slow.gmax", 0.0);   /* example: no slow x2->x2 if you wish */
+        population2[i].syn_x2x2_slow.Esyn = get_json_double(pop2_json, "syn_x2x2_slow.Esyn", -95.0);
+        population2[i].syn_x2x2_slow.a    = get_json_double(pop2_json, "syn_x2x2_slow.a", 0.09);
+        population2[i].syn_x2x2_slow.b    = get_json_double(pop2_json, "syn_x2x2_slow.b", 0.0012);
+        population2[i].syn_x2x2_slow.Vt   = get_json_double(pop2_json, "syn_x2x2_slow.Vt", 2.0);
+        population2[i].syn_x2x2_slow.r    = get_json_double(pop2_json, "syn_x2x2_slow.r", 0.0);
+        population2[i].syn_x2x2_slow.s    = get_json_double(pop2_json, "syn_x2x2_slow.s", 0.0);
+        population2[i].syn_x2x2_slow.Kd   = get_json_double(pop2_json, "syn_x2x2_slow.Kd", 100.0);
+        population2[i].syn_x2x2_slow.K3   = get_json_double(pop2_json, "syn_x2x2_slow.K3", 0.18);
+        population2[i].syn_x2x2_slow.K4   = get_json_double(pop2_json, "syn_x2x2_slow.K4", 0.034);
+        population2[i].syn_x2x2_slow.n    = get_json_double(pop2_json, "syn_x2x2_slow.n", 4.0);
 
         /* Connection arrays */
         population2[i].pop1in = NULL;
@@ -476,55 +526,55 @@ void epileptor_sim(double x0, double CpES, double *output, double duration, doub
     /* Allocate pop1n */
     pop1n *population1 = (pop1n *)malloc(N1 * sizeof(pop1n));
     for(int i=0; i<N1; i++) {
-        population1[i].a  = 1.0;
-        population1[i].b  = 3.0;
-        population1[i].c  = 1.0;
-        population1[i].d  = 5.0;
-        population1[i].m  = 0.8;
-        population1[i].s  = 8.0;
+        population1[i].a  = get_json_double(pop1_json, "a", 1.0);
+        population1[i].b  = get_json_double(pop1_json, "b", 3.0);
+        population1[i].c  = get_json_double(pop1_json, "c", 1.0);
+        population1[i].d  = get_json_double(pop1_json, "d", 5.0);
+        population1[i].m  = get_json_double(pop1_json, "m", 0.8);
+        population1[i].s  = get_json_double(pop1_json, "s", 8.0);
         population1[i].x0 = x0;
-        population1[i].z0 = 0.0;
-        population1[i].r  = 0.0001; /* [0.000004,0.00002] in the paper */
-        population1[i].I1 = 3.1;
+        population1[i].z0 = get_json_double(pop1_json, "z0", 0.0);
+        population1[i].r  = get_json_double(pop1_json, "r", 0.0001); /* [0.000004,0.00002] in the paper */
+        population1[i].I1 = get_json_double(pop1_json, "I1", 3.1);
 
-        population1[i].x1 = uniform_rand(-1.0, 1.5);
-        population1[i].y1 = uniform_rand(-5.0, 0.0);
-        population1[i].z  = uniform_rand(3.0, 3.0);
+        population1[i].x1 = x1[i];
+        population1[i].y1 = y1[i];
+        population1[i].z  = z[i];
 
-        population1[i].CpES = 0.8;
-        population1[i].CpCS = 1.0;
+        population1[i].CpES = CpES;
+        population1[i].CpCS = get_json_double(pop1_json, "CpCS", 1.0);
 
-        population1[i].noise  = 0.5;
-        population1[i].noise3 = 0.;
+        population1[i].noise  = get_json_double(pop1_json, "noise", 0.5);
+        population1[i].noise3 = get_json_double(pop1_json, "noise3", 0.0);
 
         /* Fast syn x1->x1 */
-        population1[i].syn_x1x1.gmax = 0.2; /* set to 0 if you don't want x1->x1 */
-        population1[i].syn_x1x1.Esyn = 0.0; /* intra-population synaptic coupling (μS) */
-        population1[i].syn_x1x1.a    = 1.1; /* Forward binding rate constants of the excitatory synapses to open the receptors (mM-1 msec-1) */
-        population1[i].syn_x1x1.b    = 0.19;/* Backward binding rate constants of the excitatory synapses to close the receptors (msec-1 ) */
-        population1[i].syn_x1x1.Vt   = 2.0; /* Value at which the transmitter release function is half-activated (mV)  */
-        population1[i].syn_x1x1.m    = 0.0;
+        population1[i].syn_x1x1.gmax = get_json_double(pop1_json, "syn_x1x1.gmax", 0.2);    /* set to 0 if you don't want x1->x1 */
+        population1[i].syn_x1x1.Esyn = get_json_double(pop1_json, "syn_x1x1.Esyn", 0.0);    /* intra-population synaptic coupling (μS) */
+        population1[i].syn_x1x1.a    = get_json_double(pop1_json, "syn_x1x1.a", 1.1);       /* Forward binding rate constants of the excitatory synapses to open the receptors (mM-1 msec-1) */
+        population1[i].syn_x1x1.b    = get_json_double(pop1_json, "syn_x1x1.b", 0.19);      /* Backward binding rate constants of the excitatory synapses to close the receptors (msec-1 ) */
+        population1[i].syn_x1x1.Vt   = get_json_double(pop1_json, "syn_x1x1.Vt", 2.0);      /* Value at which the transmitter release function is half-activated (mV)  */
+        population1[i].syn_x1x1.m    = get_json_double(pop1_json, "syn_x1x1.m", 0.0);
 
         /* Fast syn x2->x1 */
-        population1[i].syn_x2x1.gmax = 0.2;
-        population1[i].syn_x2x1.Esyn = uniform_rand(-80.0, -50.0);
-        population1[i].syn_x2x1.a    = 5.0;
-        population1[i].syn_x2x1.b    = 0.18;
-        population1[i].syn_x2x1.Vt   = 2.0;
-        population1[i].syn_x2x1.m    = 0.0;
+        population1[i].syn_x2x1.gmax = get_json_double(pop1_json, "syn_x2x1.gmax", 0.2);
+        population1[i].syn_x2x1.Esyn = uniform_rand(get_json_double(pop1_json, "syn_x2x1.Esyn_min", -80.0), get_json_double(pop1_json, "syn_x2x1.Esyn_max", -50.0));
+        population1[i].syn_x2x1.a    = get_json_double(pop1_json, "syn_x2x1.a", 5.0);
+        population1[i].syn_x2x1.b    = get_json_double(pop1_json, "syn_x2x1.b", 0.18);
+        population1[i].syn_x2x1.Vt   = get_json_double(pop1_json, "syn_x2x1.Vt", 2.0);
+        population1[i].syn_x2x1.m    = get_json_double(pop1_json, "syn_x2x1.m", 0.0);
 
         /* Slow syn x2->x1 */
-        population1[i].syn_x2x1_slow.gmax = 0.0;
-        population1[i].syn_x2x1_slow.Esyn = -95.0;
-        population1[i].syn_x2x1_slow.a    = 0.09;
-        population1[i].syn_x2x1_slow.b    = 0.0012;
-        population1[i].syn_x2x1_slow.Vt   = 2.0;
-        population1[i].syn_x2x1_slow.r    = 0.0;
-        population1[i].syn_x2x1_slow.s    = 8.0;
-        population1[i].syn_x2x1_slow.Kd   = 100.0;
-        population1[i].syn_x2x1_slow.K3   = 0.18;
-        population1[i].syn_x2x1_slow.K4   = 0.034;
-        population1[i].syn_x2x1_slow.n    = 4.0;
+        population1[i].syn_x2x1_slow.gmax = get_json_double(pop1_json, "syn_x2x1_slow.gmax", 0.0);
+        population1[i].syn_x2x1_slow.Esyn = get_json_double(pop1_json, "syn_x2x1_slow.Esyn", -95.0);
+        population1[i].syn_x2x1_slow.a    = get_json_double(pop1_json, "syn_x2x1_slow.a", 0.09);
+        population1[i].syn_x2x1_slow.b    = get_json_double(pop1_json, "syn_x2x1_slow.b", 0.0012);
+        population1[i].syn_x2x1_slow.Vt   = get_json_double(pop1_json, "syn_x2x1_slow.Vt", 2.0);
+        population1[i].syn_x2x1_slow.r    = get_json_double(pop1_json, "syn_x2x1_slow.r", 0.0);
+        population1[i].syn_x2x1_slow.s    = get_json_double(pop1_json, "syn_x2x1_slow.s", 8.0);
+        population1[i].syn_x2x1_slow.Kd   = get_json_double(pop1_json, "syn_x2x1_slow.Kd", 100.0);
+        population1[i].syn_x2x1_slow.K3   = get_json_double(pop1_json, "syn_x2x1_slow.K3", 0.18);
+        population1[i].syn_x2x1_slow.K4   = get_json_double(pop1_json, "syn_x2x1_slow.K4", 0.034);
+        population1[i].syn_x2x1_slow.n    = get_json_double(pop1_json, "syn_x2x1_slow.n", 4.0);
 
         /* Connection arrays */
         population1[i].pop1in = NULL;
@@ -603,6 +653,15 @@ void epileptor_sim(double x0, double CpES, double *output, double duration, doub
         double mean_x2 = (N2>0)? (new_sum_x2/N2):0.0;
 
         output[step] = 0.8 * mean_x1 + 0.2 * mean_x2;
+    }
+
+    /* Store pop states */
+    for(int i=0; i<N1; i++) {
+        x1[i] = population1[i].x1;
+        y1[i] = population1[i].y1;
+        z[i] = population1[i].z;
+        x2[i] = population2[i].x2;
+        y2[i] = population2[i].y2;
     }
 
     // Get total time
