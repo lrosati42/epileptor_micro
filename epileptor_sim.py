@@ -149,14 +149,16 @@ if __name__ == "__main__":
         # Store the simulation results in the pre-allocated total LFP array
         total_LFP_array[e * sim_steps:(e + 1) * sim_steps] = LFP_array
 
+        seed += 1
+
     # sample at given sampling frequency
     fs = int(args.get("simulation", {}).get("fs", 500))
     downsample_factor = 1   # max(1, int(t_tot / dt / fs))
     total_LFP_array = total_LFP_array[::downsample_factor]  # Downsample to match the desired sampling frequency
 
-    np.save('data/generated/LFP_signal.npy', total_LFP_array)
-    np.save('data/generated/pop1_states.npy', states_1)
-    np.save('data/generated/pop2_states.npy', states_2)
+    np.save('data/generated/LFP_signal_1s.npy', total_LFP_array)
+    np.save('data/generated/pop1_states_1s.npy', states_1)
+    np.save('data/generated/pop2_states_1s.npy', states_2)
 
     # ----- TIME REFERENCE -----
     end = timemeasure.time()

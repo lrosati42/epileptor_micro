@@ -403,6 +403,7 @@ void epileptor_sim(double x0, double CpES, double *output, double duration, doub
         srand(seed); // seed
         // srand((unsigned int)time(NULL)); // seed
         seed_initialized = 1;
+        // printf("Seed initialized to %d\n", seed);
     }
 
     FILE *file = fopen("simulation_params.json", "r");    // TODO: adjust path as needed

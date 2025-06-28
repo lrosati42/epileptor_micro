@@ -51,9 +51,9 @@ input_signal = input_signal[::downsample_factor]  # Downsample to match the desi
 # save results
 expath = f'data/original'
 Path(expath).mkdir(parents=True, exist_ok=True)
-np.save(f'{expath}/LFP_signal.npy', input_signal)
-np.save(f'{expath}/pop1_states.npy', x1_i)
-np.save(f'{expath}/pop2_states.npy', x2_i)
+np.save(f'{expath}/LFP_signal_1s.npy', input_signal)
+np.save(f'{expath}/pop1_states_1s.npy', x1_i)
+np.save(f'{expath}/pop2_states_1s.npy', x2_i)
 # input_signal_norm = (input_signal - input_signal.min()) / (input_signal.max() - input_signal.min())
 # np.save(f'{expath}/mean.npy', input_signal_norm)
 # np.save(f'{expath}/st_ei.npy', evs_i)
