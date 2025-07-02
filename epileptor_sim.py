@@ -5,6 +5,7 @@ from tqdm import trange
 import time as timemeasure
 from datetime import timedelta
 import json
+from memory_profiler import profile
 
 # network parameters in a separated json file
 with open("simulation_params.json", "r") as f:
@@ -61,10 +62,8 @@ def params_loader(path):
     CpES = np.load(parpath + '/cp_real.npy')
     return x0, CpES
 
-if __name__ == "__main__":
-    # ----- TIME REFERENCE -----
-    start = timemeasure.time()
-
+@profile
+def main():
     # Initialize the Epileptor simulation by loading the shared library and FFI
     clib, ffi = epinet_init()
 
@@ -118,6 +117,8 @@ if __name__ == "__main__":
     states_2 = np.zeros((n_slices, nbn2))
 
     # Loop through each parameter set (slice) and run the simulation
+    # ----- TIME REFERENCE -----
+    start = timemeasure.time()
     for e in trange(n_slices):
 
         # Store the final states of pop1 and pop2 for each slice
@@ -149,7 +150,9 @@ if __name__ == "__main__":
         # Store the simulation results in the pre-allocated total LFP array
         total_LFP_array[e * sim_steps:(e + 1) * sim_steps] = LFP_array
 
-        seed += 1
+    # ----- TIME REFERENCE -----
+    end = timemeasure.time()
+    print(f'Code ended in {str(timedelta(seconds=(end-start)))}')
 
     # sample at given sampling frequency
     fs = int(args.get("simulation", {}).get("fs", 500))
@@ -160,6 +163,5 @@ if __name__ == "__main__":
     np.save('data/generated/pop1_states_1s.npy', states_1)
     np.save('data/generated/pop2_states_1s.npy', states_2)
 
-    # ----- TIME REFERENCE -----
-    end = timemeasure.time()
-    print(f'Code ended in {str(timedelta(seconds=(end-start)))}')
+if __name__ == "__main__":
+    main()
